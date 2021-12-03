@@ -2,42 +2,14 @@
 
 namespace app\controllers;
 
-use Yii;
-use yii\filters\AccessControl;
+use app\models\Item;
+use app\models\ItemTagLink;
+use app\models\Tag;
+use yii\helpers\ArrayHelper;
 use yii\web\Controller;
-use yii\web\Response;
-use yii\filters\VerbFilter;
-use app\models\LoginForm;
-use app\models\ContactForm;
 
 class SiteController extends Controller
 {
-    /**
-     * {@inheritdoc}
-     */
-    public function behaviors()
-    {
-        return [
-            'access' => [
-                'class' => AccessControl::className(),
-                'only' => ['logout'],
-                'rules' => [
-                    [
-                        'actions' => ['logout'],
-                        'allow' => true,
-                        'roles' => ['@'],
-                    ],
-                ],
-            ],
-            'verbs' => [
-                'class' => VerbFilter::className(),
-                'actions' => [
-                    'logout' => ['post'],
-                ],
-            ],
-        ];
-    }
-
     /**
      * {@inheritdoc}
      */
@@ -46,10 +18,6 @@ class SiteController extends Controller
         return [
             'error' => [
                 'class' => 'yii\web\ErrorAction',
-            ],
-            'captcha' => [
-                'class' => 'yii\captcha\CaptchaAction',
-                'fixedVerifyCode' => YII_ENV_TEST ? 'testme' : null,
             ],
         ];
     }
@@ -61,68 +29,48 @@ class SiteController extends Controller
      */
     public function actionIndex()
     {
-        return $this->render('index');
-    }
+        if (\Yii::$app->request->isPost) {
+            $query = Item::find()->joinWith('tagLinks as links', true, 'LEFT JOIN')
+                ->where([
+                    'not in', 'id', ItemTagLink::find()->select('itemId')
+                        ->where(['tagId' => \Yii::$app->request->post('excludeTags')])
+                ])
+                ->orderBy('name')
+                ->andFilterWhere(['links.tagId' => \Yii::$app->request->post('includeTags')]);
 
-    /**
-     * Login action.
-     *
-     * @return Response|string
-     */
-    public function actionLogin()
-    {
-        if (!Yii::$app->user->isGuest) {
-            return $this->goHome();
+            ob_end_clean();
+
+            header("Content-Type: application/force-download");
+            header("Content-Type: application/octet-stream");
+            header("Content-Type: application/download");
+            header("Content-Disposition: attachment;filename=items.csv");
+            header("Content-Transfer-Encoding: binary");
+
+            $fp = fopen('php://output', 'w');
+
+            foreach ($query->batch() as $rows) {
+                $ids = [];
+
+                /** @var Item $item */
+                foreach ($rows as $item) {
+                    $ids[] = $item->id;
+
+                    fputcsv($fp, [iconv('UTF-8', 'Windows-1251', $item->name), $item->showCount], ';');
+                }
+
+                Item::updateAllCounters(['showCount' => 1], ['id' => $ids]);
+            }
+
+            fclose($fp);
+
+            ob_flush();
+            flush();
+
+            die;
         }
 
-        $model = new LoginForm();
-        if ($model->load(Yii::$app->request->post()) && $model->login()) {
-            return $this->goBack();
-        }
-
-        $model->password = '';
-        return $this->render('login', [
-            'model' => $model,
+        return $this->render('index', [
+            'tags' => ArrayHelper::map(Tag::find()->all(), 'id', 'name')
         ]);
-    }
-
-    /**
-     * Logout action.
-     *
-     * @return Response
-     */
-    public function actionLogout()
-    {
-        Yii::$app->user->logout();
-
-        return $this->goHome();
-    }
-
-    /**
-     * Displays contact page.
-     *
-     * @return Response|string
-     */
-    public function actionContact()
-    {
-        $model = new ContactForm();
-        if ($model->load(Yii::$app->request->post()) && $model->contact(Yii::$app->params['adminEmail'])) {
-            Yii::$app->session->setFlash('contactFormSubmitted');
-
-            return $this->refresh();
-        }
-        return $this->render('contact', [
-            'model' => $model,
-        ]);
-    }
-
-    /**
-     * Displays about page.
-     *
-     * @return string
-     */
-    public function actionAbout()
-    {
-        return $this->render('about');
     }
 }
