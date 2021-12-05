@@ -55,7 +55,7 @@ class SiteController extends Controller
                 foreach ($rows as $item) {
                     $ids[] = $item->id;
 
-                    fputcsv($fp, [iconv('UTF-8', 'Windows-1251', $item->name), $item->showCount], ';');
+                    fputcsv($fp, [$item->id, iconv('UTF-8', 'Windows-1251', $item->name)], ';');
                 }
 
                 Item::updateAllCounters(['showCount' => 1], ['id' => $ids]);
